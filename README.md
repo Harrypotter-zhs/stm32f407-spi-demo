@@ -1,5 +1,19 @@
 # SPI传输44K字节的数据内容，需要进行分包进行传输
 
+git 命令上传版本库
+
+```shell
+# 创建一个新的仓库
+git init
+git add README.md
+git commit -m "first commit"
+git branch -M main
+git remote add origin git@github.com:Harrypotter-zhs/stm32f407-spi-demo.git
+git push -u origin main
+# 向一个仓库提交代码
+
+```
+
 ## 注意事项
 
 ```shell
@@ -120,8 +134,6 @@ Argon:
 Argon:
 还得有个电脑在那里挂串口日志
 ```
-
-
 
 已经实现分包发送，但是没有重发机制
 
