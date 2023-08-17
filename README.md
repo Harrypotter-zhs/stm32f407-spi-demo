@@ -11,7 +11,9 @@ git branch -M main
 git remote add origin git@github.com:Harrypotter-zhs/stm32f407-spi-demo.git
 git push -u origin main
 # 向一个仓库提交代码
-
+git remote add origin git@github.com:Harrypotter-zhs/stm32f407-spi-demo.git
+git branch -M main
+git push -u origin main
 ```
 
 ## 注意事项
