@@ -43,21 +43,34 @@ extern SPI_HandleTypeDef hspi1;
 //                                  HAL_GPIO_WritePin(SPI1_CS_GPIO_Port, SPI1_CS_Pin, GPIO_PIN_RESET); \
 //                            }while(0)
 	
-#define SYNC_FRAME            0xAA    // 同步帧
-#define PACKET_SIZE           (128) // 每个数据包的大小
-#define DELAY_BETWEEN_PACKETS 100   // 每个数据包之间的延时时间（单位：毫秒）	
-//#define SPI_RX_NUM 		17                         /* 定义最大接收字节数 200 */
+
+//#define SPI_RX_NUM 		17                         /* 锟斤拷锟斤拷锟斤拷锟斤拷锟斤拷锟街斤拷锟斤拷 200 */
 //#define SPI_REC_LEN   	12                     
-#define SPI_RXBUFFERSIZE    1                       /* 缓存大小 */
-extern uint8_t spi_rx_buffer[SPI_RXBUFFERSIZE];       /* HAL库USART接收Buffer */
-extern uint8_t spi_tx_rx_buffer[PACKET_SIZE+5];
+#define SPI_RXBUFFERSIZE    1                       /* 锟斤拷锟斤拷锟叫? */
+extern uint8_t spi_rx_buffer[SPI_RXBUFFERSIZE];       /* HAL锟斤拷USART锟斤拷锟斤拷Buffer */
+//extern uint8_t spi_tx_rx_buffer[PACKET_SIZE+5];
 /* USER CODE END Private defines */
+#define SYNC_FRAME            0xAA    // 帧同步吗
+#define PACKET_SIZE           (256) // 帧包数据大小
+#define PACKET_ALL_LENGTH     (256+8) //帧的总长度
+typedef struct {
+  uint8_t head[2];
+  uint8_t index[2];// 原来是uint16_t
+  uint8_t data_len[2];
+  uint8_t all_data_len[2];// 原来是uint16_t,拆分为2个uint8_t
+  uint8_t crc_data[2];
+  uint8_t info[PACKET_SIZE];
+}spi_send;
+extern spi_send *spi_send_buf;
 
 void MX_SPI1_Init(void);
 
 /* USER CODE BEGIN Prototypes */
 uint8_t spi1_read_write_byte(uint8_t txdata);
-void SPI_MasterSendData_DMA(uint8_t* data, uint32_t size);														
+//void SPI_MasterSendData_DMA(uint8_t* data, uint32_t size);				
+//void SPI_MasterSendData_DMA(uint8_t* data, uint32_t size, uint8_t count);
+void SPI_MasterSendData_DMA(uint8_t* data, uint32_t size);
+void SPI_MasterSendData_DMA_2(uint8_t* data, uint16_t data_size, uint32_t one_size);
 /* USER CODE END Prototypes */
 
 #ifdef __cplusplus

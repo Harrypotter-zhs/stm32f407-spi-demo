@@ -1,5 +1,11 @@
 # SPI传输44K字节的数据内容，需要进行分包进行传输
 
+## 现在进度
+
+已经完成的分包发送并且数据不足固定字节数据补0发送
+
+
+
 git 命令上传版本库
 
 ```shell
@@ -14,6 +20,7 @@ git push -u origin main
 git remote add origin git@github.com:Harrypotter-zhs/stm32f407-spi-demo.git
 git branch -M main
 git push -u origin main
+
 ```
 
 ## 注意事项
@@ -135,10 +142,4 @@ Argon:
 
 Argon:
 还得有个电脑在那里挂串口日志
-```
-
-已经实现分包发送，但是没有重发机制
-
-```c
-
 ```

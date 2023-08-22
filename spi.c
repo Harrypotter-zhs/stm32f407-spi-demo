@@ -32,17 +32,20 @@
  *  bit14，      接收到0x0d
  *  bit13~0，    接收到的有效字节数目
 */
+
+#define DELAY_BETWEEN_PACKETS 100   // 每锟斤拷锟斤拷锟捷帮拷之锟斤拷锟斤拷锟绞笔憋拷洌?锟斤拷位锟斤拷锟斤拷锟诫）	
 uint16_t spi_rx_sta = 0;
-uint8_t spi_tx_rx_buffer[PACKET_SIZE+5];
+//uint8_t spi_tx_rx_buffer[PACKET_SIZE+5];
 uint8_t spi_rx_buffer[SPI_RXBUFFERSIZE];
+spi_send *spi_send_buf;
 //uint8_t g_rx_buffer[RXBUFFERSIZE];                  /* HAL库使用的串口接收缓冲 */
 
 instructment1_dictionary_1 euip1_dict_1[16];  //设备1字典
 instructment1_dictionary_2 euip1_dict_2[16];
-instructment2_dictionary_1 euip2_dict_1[48];  //设备2字典
-instructment2_dictionary_2 euip2_dict_2[48];
-datainquire_dictionary_1 datasave_eqip_1;     //数据存储器字典
-datainquire_dictionary_2 datasave_eqip_2;   
+//instructment2_dictionary_1 euip2_dict_1[48];  //设备2字典
+//instructment2_dictionary_2 euip2_dict_2[48];
+//datainquire_dictionary_1 datasave_eqip_1;     //数据存储器字典
+//datainquire_dictionary_2 datasave_eqip_2;   
 /* USER CODE END 0 */
 
 SPI_HandleTypeDef hspi1;
@@ -249,6 +252,154 @@ void DMA2_Stream3_IRQHandler(void)
   /* USER CODE END DMA2_Stream3_IRQn 1 */
 }
 
+
+spi_send *spi_send_buf;
+
+/**尽可能的让接收端简化步骤，只用验证接收的数据是否正确，其他的尽可能的不做数据处理
+ * 封包操作
+ * data: 全部的数据？还是固定长度的数据呢？：暂时先考虑已经处理过的数据
+ * size：跟随上个参数引起的歧义，是那个长度？：长度暂时不变-定长发送数据
+ * count 当前传输的数据总量，比如我传输的是euip1_dict_2[i],这个数据总量就是216=72+144，euip1_dict_1[i]字典，此时的数据总量就是256+512
+*/
+void data_packaging(uint8_t* data, uint32_t size, uint16_t count)
+{
+		
+    uint16_t packetSize=0;
+    uint16_t data_crc=0;
+    spi_send_buf->head[0] = 0xA0;
+    spi_send_buf->head[1] = 0xB0;
+		
+		// index = E1
+    spi_send_buf->index[0] = (data[0]>>8)&0xFF;
+    spi_send_buf->index[1] = (data[0]&0xFF);
+
+    //如果帧包数          据部分满足256字字节，此时传输数据256个字节
+    
+    if (size > PACKET_SIZE) 
+    {
+      packetSize = PACKET_SIZE;
+    }
+    else
+    {
+      // 如果传输不足256字节，此时只复制数据段中要保存的数据字节，其余不足的空补领操作。同时要说明数据传输的字节个数
+      // 例如传输的数据为40+80 此时就有120字节的数量，就有大概一半的传输数量不足，此时packetSize就等于120，
+      // 尽可能的一个帧包保存一个设备节点的数据 
+			packetSize = size;
+    } 
+		printf("packetSize %d, count %d\r\n", packetSize, count);
+		
+		// 当前帧传输的有效字节数 packetSize
+    spi_send_buf->data_len[0] = (packetSize>>8)&0xFF;
+    spi_send_buf->data_len[1] = (packetSize) & 0xFF;
+
+		// 一个数据的总长度 
+	  spi_send_buf->all_data_len[0] = (count>>8)&0xFF;// 计算要发送的数据的长度
+    spi_send_buf->all_data_len[1] = (count) & 0xFF;
+		
+		// 计算前8位字符的CRC校验值作为帧传输的依据
+    data_crc = crc16tablefast(&spi_send_buf->head[0], 8);         // 也可以只校验前8为要传输的数据
+    spi_send_buf->crc_data[0] = (data_crc>> 8) & 0xFF;
+    spi_send_buf->crc_data[1] = data_crc & 0xFF;
+		
+    // 先补0，如果256个字节全部使用，这样的话 0x00 也会被覆盖掉，如果没有用到也能达到清楚上一次发送数据的作用
+    memset(&spi_send_buf->info, 0x01, PACKET_SIZE); 
+    memcpy(&spi_send_buf->info, &data[1], packetSize);
+			// 测试代码
+//		for (uint8_t i = 0; i< packetSize;i++)
+//		{
+//			if (data[i] != NULL)
+//			{
+//					printf("data[%d]=%X ", i, data[i]);
+//			}
+//			if (i%20 == 0)printf("\r\n");
+//				
+//		}
+//		printf("\r\n");
+//		spi_send_buf->info[0] = 0xE1;
+//		printf("head %X %X\r\n", spi_send_buf->head[0], spi_send_buf->head[1]);
+//		printf("index %X %X\r\n", spi_send_buf->index[0], spi_send_buf->index[1]);
+//		printf("data_len %X %X\r\n", spi_send_buf->data_len[0], spi_send_buf->data_len[1]);
+//		printf("all_data_len %X %X\r\n", spi_send_buf->all_data_len[0], spi_send_buf->all_data_len[1]);
+//		printf("data_crc %X %X\r\n", spi_send_buf->crc_data[0], spi_send_buf->crc_data[1]);
+			// 查看要传输的值 spi_send_buf->info[i]的具体内容
+//		for (uint8_t i = 0; i< packetSize;i++)
+//		{
+//			if (spi_send_buf->info[i] != NULL)
+//			{
+//					printf("info[%d]=%X ", i, spi_send_buf->info[i]);
+//			}
+//			
+//			if (i%20 == 0)printf("\r\n");
+//		}
+//		printf("\r\n");
+//		printf("sizeof(spi_send) %d", sizeof(spi_send));
+
+	  HAL_SPI_Transmit_DMA(&hspi1, (uint8_t*)spi_send_buf, sizeof(spi_send));
+		while (HAL_SPI_GetState(&hspi1) != HAL_SPI_STATE_READY)
+		{
+		}
+}
+
+# if 1
+// size 要传输的字节数量，一个设备节点
+void SPI_MasterSendData_DMA_2(uint8_t* data, uint16_t data_size, uint32_t one_size)
+{
+    // 分包发送数据
+    uint8_t i, j;
+		uint16_t index = 0;
+		uint8_t *ptr=NULL;
+//    uint32_t send_data_size = data_size;   // 1+256+512 单个设备节点的数据总量 769
+    uint8_t send_count = 0;  								 // 一个设备节点需要发送多少次数据
+		uint16_t one_struct_size = one_size;   //一个结构体的大小
+    int remaining =0;   // 剩余待发送的字节数量
+	 
+		send_count = 15;		//多少个设备借节点
+		printf("one_struct_size %d\r\n", one_struct_size);
+    // uint32_t remaining_count = size/PACKET_SIZE; // 512+256
+    uint8_t packets_count = 0; // 一个设备的的帧包的数量
+    if (data_size> PACKET_SIZE)
+    {
+      packets_count = (data_size - 1) / PACKET_SIZE;  // 实际帧包的数量
+    }
+    else
+    {
+      packets_count = 1;                   				   // 不足一个帧包的数量，补全为一个帧包
+    }
+    // 16个设备，每个设备要发 x 个帧包，x=size/
+		printf("packets_count %d, send_count %d, data_size %d\r\n", packets_count, send_count, data_size);
+    for (i = 0; i < send_count; i++) // 16个
+    {   
+				ptr = &data[(one_struct_size)*i];
+				index = ptr[0];
+				printf("index %X, i %d\r\n",index, i);
+        for(j=0; j < packets_count; j++) // 3个帧包
+        {
+          if (data_size < PACKET_SIZE)       // 针对不足一个PACKET_SIZE 数据包而言，每次发送的数据都是固定，
+																				     // 只发一个包，其他的则是按照正常发送数据
+          {
+              remaining = data_size;
+          }
+          else
+          {
+              remaining = PACKET_SIZE;
+          }
+					printf("remaining %d\r\n", remaining);
+				  data_packaging(ptr, remaining, data_size);   // data_size当前设备节点一个完整的数据的长度
+        }
+
+    }
+}
+
+#endif 
+void data_unpacking(uint8_t* data, uint32_t size)
+{
+
+}
+
+
+
+
+#if 0
 // 发送数据
 void SPI_MasterSendData_DMA(uint8_t* data, uint32_t size)
 {
@@ -288,10 +439,12 @@ void SPI_MasterSendData_DMA(uint8_t* data, uint32_t size)
 				{
 //						printf("spi1 dma send error\r\n");
 				}
-			
-
     }
 }
+
+#endif /* HAL_SPI_MODULE
+
+
 
 // 接收数据
 void SPI_SlaveReceiveData_DMA(uint8_t* data, uint32_t* size)
@@ -423,11 +576,11 @@ void SPI_SlaveReceiveData_DMA(uint8_t* data, uint32_t* size)
 //	/**
 //	接收首帧8字节长度数据
 //	8字节时间
-//	26256字节的CAN设备1的字典数据
+//	26256字节的CAN设备1的字典数据 105.024=106个帧包才能完成发送
 //		16*(1 + 256*5 + 72*5) 16个1640字节的数据为一个完整的帧
-//	19248字节的CAN设备2的字典数据
+//	19248字节的CAN设备2的字典数据 77个帧包才能完成
 //		48*(1 + 40*5 + 40*5)  48个401字节的数据为一个帧
-//	401字节的数据存储的字典数据
+//	401字节的数据存储的字典数据 2个帧包才能完成
 //		1 + 40*5 + 40*5				1个401字节的数据为一个帧
 //	8字节尾帧数据
 //	*/
@@ -465,7 +618,7 @@ void SPI_SlaveReceiveData_DMA(uint8_t* data, uint32_t* size)
 //			k += 2;
 //		}
 //	}
-//	//4.向flash-usb板发送can设备2的字典
+//	//4.向flash-usb板发送can设备2的字典 
 //	for(i=0;i<48;i++)
 //	{
 //		SPI1_ReadWriteByte(i+0x20);
