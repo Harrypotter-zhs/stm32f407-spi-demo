@@ -16,10 +16,10 @@
   *
   ******************************************************************************
   */
-	
-/* USER CODE END Header */
-#include "crc16.h"
+#include "crc16.h"	
 #include "string.h"
+
+/* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "spi.h"
 
@@ -36,16 +36,13 @@
 #define DELAY_BETWEEN_PACKETS 100   // 每锟斤拷锟斤拷锟捷帮拷之锟斤拷锟斤拷锟绞笔憋拷洌?锟斤拷位锟斤拷锟斤拷锟诫）	
 uint16_t spi_rx_sta = 0;
 //uint8_t spi_tx_rx_buffer[PACKET_SIZE+5];
-uint8_t spi_rx_buffer[SPI_RXBUFFERSIZE];
-spi_send *spi_send_buf;
+//uint8_t spi_rx_buffer[SPI_RXBUFFERSIZE];
+
+//extern spi_send *spi_send_buf;
+//extern spi_send *spi_receive_buf;
+
 //uint8_t g_rx_buffer[RXBUFFERSIZE];                  /* HAL库使用的串口接收缓冲 */
 
-instructment1_dictionary_1 euip1_dict_1[16];  //设备1字典
-instructment1_dictionary_2 euip1_dict_2[16];
-//instructment2_dictionary_1 euip2_dict_1[48];  //设备2字典
-//instructment2_dictionary_2 euip2_dict_2[48];
-//datainquire_dictionary_1 datasave_eqip_1;     //数据存储器字典
-//datainquire_dictionary_2 datasave_eqip_2;   
 /* USER CODE END 0 */
 
 SPI_HandleTypeDef hspi1;
@@ -64,17 +61,16 @@ void MX_SPI1_Init(void)
 
   /* USER CODE END SPI1_Init 1 */
   hspi1.Instance = SPI1;
-  hspi1.Init.Mode = SPI_MODE_MASTER;
+  hspi1.Init.Mode = SPI_MODE_SLAVE;
   hspi1.Init.Direction = SPI_DIRECTION_2LINES;
   hspi1.Init.DataSize = SPI_DATASIZE_8BIT;
   hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
   hspi1.Init.NSS = SPI_NSS_SOFT;
-  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_64;
   hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
-  hspi1.Init.CRCPolynomial = 7;
+  hspi1.Init.CRCPolynomial = 10;
   if (HAL_SPI_Init(&hspi1) != HAL_OK)
   {
     Error_Handler();
@@ -200,9 +196,9 @@ void HAL_SPI_MspDeInit(SPI_HandleTypeDef* spiHandle)
  * @param       txdata  : 要发送的数据(1字节)
  * @retval      接收到的数据(1字节)
  */
-uint8_t SPI1_ReadWriteByte(uint8_t txdata)
-{  
-     uint8_t retry=0;     
+//uint8_t SPI1_ReadWriteByte(uint8_t txdata)
+//{  
+//     uint8_t retry=0;     
 //     while((SPI1->SR&1<<1)==0)
 //     {
 //          retry++;
@@ -213,20 +209,20 @@ uint8_t SPI1_ReadWriteByte(uint8_t txdata)
 //     }     
 //     (__IO uint8_t)SPI1->DR = txdata; 
 //     retry=0;
-     while((SPI1->SR&1<<0)==0)  
-     {
-          retry++;
-          if(retry>200)
-					{
-							return 0;
-					}
-     }             
-     return SPI1->DR;                
-}
+//     while((SPI1->SR&1<<0)==0)  
+//     {
+//          retry++;
+//          if(retry>200)
+//					{
+//							return 0;
+//					}
+//     }             
+//     return SPI1->DR;                
+//}
 
 
 
-
+// DMA接收
 void DMA2_Stream0_IRQHandler(void)
 {
   /* USER CODE BEGIN DMA2_Stream0_IRQn 0 */
@@ -241,6 +237,7 @@ void DMA2_Stream0_IRQHandler(void)
 /**
   * @brief This function handles DMA2 stream3 global interrupt.
   */
+// DMA发送
 void DMA2_Stream3_IRQHandler(void)
 {
   /* USER CODE BEGIN DMA2_Stream3_IRQn 0 */
@@ -258,7 +255,7 @@ spi_send *spi_send_buf;
 /**尽可能的让接收端简化步骤，只用验证接收的数据是否正确，其他的尽可能的不做数据处理
  * 封包操作
  * data: 全部的数据？还是固定长度的数据呢？：暂时先考虑已经处理过的数据
- * size：跟随上个参数引起的歧义，是那个长度？：长度暂时不变-定长发送数据
+ * size：当前帧的有效数据长度
  * count 当前传输的数据总量，比如我传输的是euip1_dict_2[i],这个数据总量就是216=72+144，euip1_dict_1[i]字典，此时的数据总量就是256+512
 */
 void data_packaging(uint8_t* data, uint32_t size, uint16_t count)
@@ -266,20 +263,20 @@ void data_packaging(uint8_t* data, uint32_t size, uint16_t count)
 		
     uint16_t packetSize=0;
     uint16_t data_crc=0;
-    spi_send_buf->head[0] = 0xA0;
-    spi_send_buf->head[1] = 0xB0;
-		
-		// index = E1
+    spi_send_buf->head[0] = 0xA0; // 帧头作为同步帧
+//    spi_send_buf->head[1] = 0xB0;
+		spi_send_buf->head[1] = 0xEB; // 设备号码设备00-01H 设备 10-1Fh, 20-4Fh的
+		// index = 索引号 2000 或者2100
     spi_send_buf->index[0] = (data[0]>>8)&0xFF;
     spi_send_buf->index[1] = (data[0]&0xFF);
 
     //如果帧包数          据部分满足256字字节，此时传输数据256个字节
     
-    if (size > PACKET_SIZE) 
-    {
-      packetSize = PACKET_SIZE;
-    }
-    else
+//    if (size > PACKET_SIZE) 
+//    {
+//      packetSize = PACKET_SIZE;
+//    }
+//    else
     {
       // 如果传输不足256字节，此时只复制数据段中要保存的数据字节，其余不足的空补领操作。同时要说明数据传输的字节个数
       // 例如传输的数据为40+80 此时就有120字节的数量，就有大概一半的传输数量不足，此时packetSize就等于120，
@@ -304,36 +301,6 @@ void data_packaging(uint8_t* data, uint32_t size, uint16_t count)
     // 先补0，如果256个字节全部使用，这样的话 0x00 也会被覆盖掉，如果没有用到也能达到清楚上一次发送数据的作用
     memset(&spi_send_buf->info, 0x01, PACKET_SIZE); 
     memcpy(&spi_send_buf->info, &data[1], packetSize);
-			// 测试代码
-//		for (uint8_t i = 0; i< packetSize;i++)
-//		{
-//			if (data[i] != NULL)
-//			{
-//					printf("data[%d]=%X ", i, data[i]);
-//			}
-//			if (i%20 == 0)printf("\r\n");
-//				
-//		}
-//		printf("\r\n");
-//		spi_send_buf->info[0] = 0xE1;
-//		printf("head %X %X\r\n", spi_send_buf->head[0], spi_send_buf->head[1]);
-//		printf("index %X %X\r\n", spi_send_buf->index[0], spi_send_buf->index[1]);
-//		printf("data_len %X %X\r\n", spi_send_buf->data_len[0], spi_send_buf->data_len[1]);
-//		printf("all_data_len %X %X\r\n", spi_send_buf->all_data_len[0], spi_send_buf->all_data_len[1]);
-//		printf("data_crc %X %X\r\n", spi_send_buf->crc_data[0], spi_send_buf->crc_data[1]);
-			// 查看要传输的值 spi_send_buf->info[i]的具体内容
-//		for (uint8_t i = 0; i< packetSize;i++)
-//		{
-//			if (spi_send_buf->info[i] != NULL)
-//			{
-//					printf("info[%d]=%X ", i, spi_send_buf->info[i]);
-//			}
-//			
-//			if (i%20 == 0)printf("\r\n");
-//		}
-//		printf("\r\n");
-//		printf("sizeof(spi_send) %d", sizeof(spi_send));
-
 	  HAL_SPI_Transmit_DMA(&hspi1, (uint8_t*)spi_send_buf, sizeof(spi_send));
 		while (HAL_SPI_GetState(&hspi1) != HAL_SPI_STATE_READY)
 		{
@@ -342,7 +309,10 @@ void data_packaging(uint8_t* data, uint32_t size, uint16_t count)
 
 # if 1
 // size 要传输的字节数量，一个设备节点
-void SPI_MasterSendData_DMA_2(uint8_t* data, uint16_t data_size, uint32_t one_size)
+/**
+data_size 一个设备节点要传输的有效数据长度 比如2+256+512，或者2+40+80
+*/
+void SPI_MasterSendData_DMA_2(uint8_t* data, uint16_t data_size, uint32_t one_size, uint8_t times)
 {
     // 分包发送数据
     uint8_t i, j;
@@ -353,17 +323,20 @@ void SPI_MasterSendData_DMA_2(uint8_t* data, uint16_t data_size, uint32_t one_si
 		uint16_t one_struct_size = one_size;   //一个结构体的大小
     int remaining =0;   // 剩余待发送的字节数量
 	 
-		send_count = 15;		//多少个设备借节点
+//		send_count = 48;		//多少个设备借节点
+		send_count = times;
 		printf("one_struct_size %d\r\n", one_struct_size);
     // uint32_t remaining_count = size/PACKET_SIZE; // 512+256
     uint8_t packets_count = 0; // 一个设备的的帧包的数量
     if (data_size> PACKET_SIZE)
     {
-      packets_count = (data_size - 1) / PACKET_SIZE;  // 实际帧包的数量
+      packets_count = (data_size) / PACKET_SIZE;  // 实际帧包的数量
+			if ((data_size%PACKET_SIZE) > 0) //但凡还有剩余字节未传送就重新封包传输
+					packets_count = packets_count + 1;
     }
     else
     {
-      packets_count = 1;                   				   // 不足一个帧包的数量，补全为一个帧包
+          packets_count = 1;                   				   // 不足一个帧包的数量，补全为一个帧包
     }
     // 16个设备，每个设备要发 x 个帧包，x=size/
 		printf("packets_count %d, send_count %d, data_size %d\r\n", packets_count, send_count, data_size);
@@ -376,14 +349,32 @@ void SPI_MasterSendData_DMA_2(uint8_t* data, uint16_t data_size, uint32_t one_si
         {
           if (data_size < PACKET_SIZE)       // 针对不足一个PACKET_SIZE 数据包而言，每次发送的数据都是固定，
 																				     // 只发一个包，其他的则是按照正常发送数据
-          {
-              remaining = data_size;
+          {	
+														
+								remaining = data_size;
+								          
           }
           else
           {
-              remaining = PACKET_SIZE;
+								if (j == (packets_count -1))
+								{
+										if ((data_size%PACKET_SIZE) == 0)
+										{
+											remaining = PACKET_SIZE;
+										}
+										else
+										{
+												remaining = (data_size%PACKET_SIZE);
+										}
+								}
+								else
+								{
+										remaining = PACKET_SIZE;
+								}
           }
-					printf("remaining %d\r\n", remaining);
+			
+//					memcpy(&spi_send_buf->info, &data[1], packetSize); // 给这句话使用的
+//					printf("remaining %d\r\n", remaining);
 				  data_packaging(ptr, remaining, data_size);   // data_size当前设备节点一个完整的数据的长度
         }
 
@@ -391,13 +382,161 @@ void SPI_MasterSendData_DMA_2(uint8_t* data, uint16_t data_size, uint32_t one_si
 }
 
 #endif 
+// 目的是只用接收，并且只计算个CRC校验值判断是否正确，如果正确的话，那就正常接收数据，并且判断
+uint8_t one_flag = 1;
+//#define rx_one_data_len 0
+uint16_t instructment_index=0;
+uint16_t rx_one_data_len = 0;        //一个设备节点要传输的总数据长度
+uint16_t Current_len_now =0;
+uint8_t rx_num = 0;                  // 计算需要接收的帧的次数，比如euip1_dict_1[16] 有16个设备子节点，
+                                     // 每个子节点如果按照128字节传输则需要接收6个有效帧数.需要计算出这个字节数量
+																		
 void data_unpacking(uint8_t* data, uint32_t size)
 {
+		uint8_t rx_data_crc[2];
+		uint16_t send_data_crc;
+	  uint16_t rx_len=0; 
+		uint8_t* ptr = data;
+		static uint8_t num = 0;
+		static uint8_t device_number = 0, flag_open=0, flag_same=0;
+		if (one_flag == 1 && (*ptr != NULL))
+		{
+			  // 查看帧头是否正确如果不正确 这个数据错误 检验帧头是否正确
+				if ((ptr[0] == 0xAB))
+				{
+						
+//						if (*ptr != NULL)
+						{
+								rx_data_crc[0] = ptr[8];
+								rx_data_crc[1] = ptr[9];
+						}
+					  // 发的顺序和接收的顺序是一样的，要看固定的数据就行
+						send_data_crc = crc16tablefast(ptr,8);
+						//对比CRC校验值是否正确，是则进行处理数据开始
+						if (send_data_crc == ((rx_data_crc[0])|rx_data_crc[1]<<8))
+						{		
 
+								// 每个设备的节点号
+								instructment_index = (ptr[2]|(ptr[3]<<8));
+								// 当前设备的x的数据帧中的有效数据长度
+								rx_len = (ptr[4]|(ptr[5]<<8));
+								// 当前设备的x的总的有效数据长度
+								Current_len_now = Current_len_now+rx_len;
+								rx_one_data_len = (ptr[6]|(ptr[7]<<8)); 
+								if ((rx_one_data_len % PACKET_SIZE) == 0) // 恰好能完全整除
+								{
+										rx_num = rx_one_data_len / PACKET_SIZE; // 768/128 = 6,如果是
+								}
+								else																					// 不能被完全整除的数据量
+								{
+										if ((rx_one_data_len / PACKET_SIZE) != 0) // 比如218%128 = 90,218/128 = 1 
+										{
+												rx_num = (rx_one_data_len / PACKET_SIZE) + 1; // 1+1 需要两个数据帧才能完全接收完数据
+										}
+								}
+								
+								if (rx_num == 1) // 只用一个数据帧便可完成所有的数据传输,那就表示接收完此帧就可以保存赋值即可
+								{
+									// 数据赋值操作
+//									    memset(&spi_send_buf->info, 0x01, PACKET_SIZE); 
+//											memcpy(&spi_send_buf->info, &data[1], packetSize);
+//											memset(&spi_receive_buf->info, 0x00, PACKET_SIZE);	
+//											// 接收一帧中的有效数据rx_len
+//											memcpy(&spi_receive_buf->info, &ptr[10], rx_len); 
+								}
+								else if(rx_num > 1) //多个帧传输，假设为2个帧传输
+							  {
+											// flag_open 多个帧所需，第一个帧传输时给赋值所需,保存子节点的设备号10的索引号为2000第一个帧的设备节点号
+											if(flag_open == 0)
+											{
+													device_number = ptr[1];
+													flag_same = 1; // 
+													flag_open = 1;
+											}
+											else if((flag_open == 1)&&(device_number == ptr[1]))// 当前设备子节点没错，和上一帧的数据是一个设备子节点的
+											{					
+													{
+															flag_same = flag_same + 1;
+													}
+											}
+											if (flag_same != 0) // 接收多帧传输的数据字节比如 第一帧一节接下来的帧数
+											{
+													// 数据赋值操作
+//													memset(&spi_receive_buf->info, 0x00, PACKET_SIZE);	
+//													// 接收一帧中的有效数据rx_len
+//													memcpy(&spi_receive_buf->info, &ptr[10], rx_len); 
+											}
+											
+
+								}
+
+							  // 测试查看接收的数据是否正确，检验截取测试的
+								printf("index %X\r\n", instructment_index);
+								printf("data_len %X\r\n", rx_len);
+							  printf("data_al_len %X\r\n", rx_one_data_len);
+								printf("rx_len %d\r\n", rx_len);
+								// 说明这个设备节点的数据有效数据全部接收完成
+								// 这部分是数据完成接收的部分
+								// 正常接收帧的数据 拷贝rx_len字节长度的有效数据到缓存区，最长为 PACKET_SIZE
+//								memcpy(&spi_send_buf->info, &ptr[10], rx_len); 
+								// 当前设备节点的接收帧的数量，比如设备节点1,需要传输218个字节，128字节为一帧，
+//								如果此时当前帧数据接收完毕之后，此时也就是第二帧接收完毕
+								num++; 
+								if (num == rx_num) //如果判断正确 和预期要接收的帧数相同
+								{
+									  // 再次判断当前设备节点的数据是否接收完整或者完全
+										if (rx_one_data_len == Current_len_now)
+										{
+//												spi_send_buf->head[0] = ptr[0];
+//												spi_send_buf->head[1] = ptr[1];
+												
+												// index = E1
+//												spi_receive_buf->index[0] = (ptr[2]>>8)&0xFF;
+//												spi_receive_buf->index[1] = (ptr[3]&0xFF);
+												printf("rx all \r\n");
+												flag_open = 0;
+										}
+										else
+									  {
+										
+					
+										}
+								}
+								else	
+								{
+								
+								}
+						}
+				}
+				else // 接收数据错误-或者说并没有接收到开头的数据，抛弃此帧的数据
+			  {
+						printf("rx error\r\n");
+				}
+
+		}
+		 one_flag = 0;
 }
 
+//void SPI_MasterReceiveData_DMA_2(uint8_t* data, uint16_t data_size, uint32_t one_size, uint8_t times)
+void SPI_MasterReceiveData_DMA_2(void)
+{
+		if (HAL_DMA_PollForTransfer(&hdma_spi1_rx, HAL_DMA_FULL_TRANSFER, HAL_MAX_DELAY) == HAL_OK)
+    {
+      /* DMA transfer completed, data is available in RxBuffer */
+      // 处理接收到的数据
+			one_flag = 1;
+			printf("SPI_MasterReceiveData_DMA_2\r\n");
+    }
+}
 
-
+void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef *hspi)
+{
+    // 数据接收全部完成时的处理
+    // ...
+		one_flag = 1;
+		printf("HAL_SPI_RxCpltCallback");
+//		data_unpacking((uint8_t*)spi_receive_buf, 0);
+}
 
 #if 0
 // 发送数据
@@ -445,39 +584,6 @@ void SPI_MasterSendData_DMA(uint8_t* data, uint32_t size)
 #endif /* HAL_SPI_MODULE
 
 
-
-// 接收数据
-void SPI_SlaveReceiveData_DMA(uint8_t* data, uint32_t* size)
-{
-    // 等待同步特殊帧
-    uint8_t syncFrame;
-    while (syncFrame != SYNC_FRAME)
-    {
-        HAL_SPI_Receive(&hspi1, &syncFrame, 1, HAL_MAX_DELAY);
-    }
-
-    // 接收数据总大小
-    uint8_t sizeData[4];
-    HAL_SPI_Receive(&hspi1, sizeData, 4, HAL_MAX_DELAY);
-    *size = (sizeData[0] << 24) | (sizeData[1] << 16) | (sizeData[2] << 8) | sizeData[3];
-
-    // 分包接收数据
-    uint32_t packets = (*size + PACKET_SIZE - 1) / PACKET_SIZE; // 总的数据包数
-    for (uint32_t i = 0; i < packets; i++)
-    {
-        uint32_t remaining = *size - i * PACKET_SIZE;
-        uint32_t packetSize = remaining > PACKET_SIZE ? PACKET_SIZE : remaining;
-				
-        HAL_SPI_Receive_DMA(&hspi1, &data[i * PACKET_SIZE], packetSize);
-
-        // 等待DMA传输完成
-        while (HAL_SPI_GetState(&hspi1) != HAL_SPI_STATE_READY) 
-				{
-						// 其他操作
-				}
-    }
-}
-
 //void SPI1_IRQHandler(void)
 //{
 //		uint32_t timeout = 0;
@@ -509,171 +615,8 @@ void SPI_SlaveReceiveData_DMA(uint8_t* data, uint32_t* size)
 
 
 
-//void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi)
-//{  
-////	Set_SPI_CS(1);
-//	if (hspi == (&hspi1))
-//	{
-//			// 0x8000 = 1000 0000 0000 0000,     bit15 还未接收完毕
-//			if((spi_rx_sta & 0x8000) == 0)      /* 接收未完成 */
-//			{
-////						\r 的十六进制表示为：0x0D 
-////						\n 的十六进制表示为：0x0A
-//						// 0x4000 = 0100 0000 0000 0000 bit14为接收到0x0d的标志位
-//						// 此时认为已经接收到了16384位数据，按照规定下一位(16385)数据一定要是0x0a,这样才能组成0x0d 0x0a
-//						// 检查是否接收到了 0x0d（回车）字符。通过位运算判断 g_usart_rx_sta 的第 14 位是否为 1
-//						if(spi_rx_sta & 0x4000)         /* 接收到了0x0d */ 
-//            {
-//								// 判断接收到的字符是否为 0x0a（换行）字符。如果不是，则表示接收到的数据有误，需要重新开始接收
-//                if(spi_rx_buffer[0] != 0x0a) 
-//                {
-//                    spi_rx_sta = 0;         /* 接收错误,重新开始 -这一步修改更改 */
-//                }
-//                else 
-//                {
-//                    spi_rx_sta |= 0x8000;       /* 接收完成了 将接收状态的最高位置为 1，表示接收完成*/
-//                }
-//            }
-//						else                                /* 还没收到0X0D */
-//            {
-//								// 判断是否收到的数据已经是结尾了，是的话直接拼装好截止符
-//							  // 如果不是的话则不能这样做，就按照从0到16383字节接收总共能接收16384个字节数量一次为一组数据
-//                // 判断接收到的字符是否为 0x0d（回车）字符。如果是，则在接收状态中记录已接收到回车标志位
-//							  if(spi_rx_buffer[0] == 0x0d) 
-//                {
-//										// 将接收状态的第 14 位设置为 1，表示已接收到回车
-//                    spi_rx_sta |= 0x4000; 
-//                }
-//                else
-//                {
-//										// 3FFF = 16384 = 0011 1111 1111 1111 = 2^14
-//										// 
-//                    spi_recevice[spi_rx_sta & 0X3FFF] = spi_rx_buffer[0] ;
-//                    spi_rx_sta++;
-//                    if(spi_rx_sta > (SPI_REC_LEN - 1))
-//                    {
-//                        spi_rx_sta = 0;     			/* 接收数据错误,重新开始接收 */
-//                    }
-//                }
-//            }
-//			}
-//	}	
-//}
 
-////写flash-给数据存储的板子
-//void SPI_read_flash(void)
-//{
-//	uint16_t i,j,k;
-//	uint8_t flash_frame_head[9] = {0x08,0x5a,0x5a,0x5a,0x5a,0x5a,0x5a,0x5a,0x5a};
-//	uint8_t flash_frame_end[9] = {0x08, 0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5,0xa5};
-////	v_Get1302(time_ds1302);  //获取当前时刻
-//	// flash-usb就是带数据存储芯片的板子
-//	//1.向flash-usb板发送帧头
-//	if (spi_rx_flag == 1)
-//	{
-//		  spi_rx_flag = 0;
-//	}
-//	/**
-//	接收首帧8字节长度数据
-//	8字节时间
-//	26256字节的CAN设备1的字典数据 105.024=106个帧包才能完成发送
-//		16*(1 + 256*5 + 72*5) 16个1640字节的数据为一个完整的帧
-//	19248字节的CAN设备2的字典数据 77个帧包才能完成
-//		48*(1 + 40*5 + 40*5)  48个401字节的数据为一个帧
-//	401字节的数据存储的字典数据 2个帧包才能完成
-//		1 + 40*5 + 40*5				1个401字节的数据为一个帧
-//	8字节尾帧数据
-//	*/
-//	for(i=0;i<8;i++)
-//	{
-//		SPI1_ReadWriteByte(flash_frame_head[i]);
-//	}
-//	//2.向flash-usb板发送时间
-//	for(i=0;i<8;i++)
-//	{
-//		SPI1_ReadWriteByte(time_ds1302[i]);
-//	}
-//	//3.向flash-usb板发送can设备1的字典
-//	for(i=0;i<16;i++)
-//	{
-//		SPI1_ReadWriteByte(i+0x10);
-//		k = 0;
-//		for(j=0;j<256;j++)
-//		{
-//			SPI1_ReadWriteByte(euip1_dict_1[i].data_index);
-//			SPI1_ReadWriteByte((euip1_dict_1[i].data_index)>>8);
-//			SPI1_ReadWriteByte(euip1_dict_1[i].sub_index[j]);
-//			SPI1_ReadWriteByte(euip1_dict_1[i].data_information[k]);
-//			SPI1_ReadWriteByte(euip1_dict_1[i].data_information[k+1]);
-//			k += 2;
-//		}
-//		k = 0;
-//		for(j=0;j<72;j++)
-//		{
-//			SPI1_ReadWriteByte(euip1_dict_2[i].data_index);
-//			SPI1_ReadWriteByte((euip1_dict_2[i].data_index)>>8);
-//			SPI1_ReadWriteByte(euip1_dict_2[i].sub_index[j]);
-//			SPI1_ReadWriteByte(euip1_dict_2[i].data_information[k]);
-//			SPI1_ReadWriteByte(euip1_dict_2[i].data_information[k+1]);
-//			k += 2;
-//		}
-//	}
-//	//4.向flash-usb板发送can设备2的字典 
-//	for(i=0;i<48;i++)
-//	{
-//		SPI1_ReadWriteByte(i+0x20);
-//		k = 0;
-//		for(j=0;j<40;j++)
-//		{
-//			SPI1_ReadWriteByte(euip2_dict_1[i].data_index);
-//			SPI1_ReadWriteByte((euip2_dict_1[i].data_index)>>8);
-//			SPI1_ReadWriteByte(euip2_dict_1[i].sub_index[j]);
-//			SPI1_ReadWriteByte(euip2_dict_1[i].data_information[k]);
-//			SPI1_ReadWriteByte(euip2_dict_1[i].data_information[k+1]);
-//			k += 2;
-//		}
-//		k = 0;
-//		for(j=0;j<40;j++)
-//		{
-//			SPI1_ReadWriteByte(euip2_dict_2[i].data_index);
-//			SPI1_ReadWriteByte((euip2_dict_2[i].data_index)>>8);
-//			SPI1_ReadWriteByte(euip2_dict_2[i].sub_index[j]);
-//			SPI1_ReadWriteByte(euip2_dict_2[i].data_information[k]);
-//			SPI1_ReadWriteByte(euip2_dict_2[i].data_information[k+1]);
-//			k += 2;
-//		}
-//	}
-//	//5.向flash-usb板发送存储设备的字典
-//	for(i=0;i<1;i++)
-//	{
-//		SPI1_ReadWriteByte(i+0x00);
-//		k = 0;
-//		for(j=0;j<40;j++)
-//		{
-//			SPI1_ReadWriteByte(datasave_eqip_1.data_index);
-//			SPI1_ReadWriteByte((datasave_eqip_1.data_index)>>8);
-//			SPI1_ReadWriteByte(datasave_eqip_1.sub_index[j]);
-//			SPI1_ReadWriteByte(datasave_eqip_1.data_information[k]);
-//			SPI1_ReadWriteByte(datasave_eqip_1.data_information[k+1]);
-//			k += 2;
-//		}
-//		k = 0;
-//		for(j=0;j<40;j++)
-//		{
-//			SPI1_ReadWriteByte(datasave_eqip_2.data_index);
-//			SPI1_ReadWriteByte((datasave_eqip_2.data_index)>>8);
-//			SPI1_ReadWriteByte(datasave_eqip_2.sub_index[j]);
-//			SPI1_ReadWriteByte(datasave_eqip_2.data_information[k]);
-//			SPI1_ReadWriteByte(datasave_eqip_2.data_information[k+1]);
-//			k += 2;
-//		}
-//	}
-//	//6.向flash-usb板发送帧尾
-//	for(i=0;i<8;i++)
-//	{
-//		SPI1_ReadWriteByte(flash_frame_end[i]);
-//	}
-//}
+
 
 
 

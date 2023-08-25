@@ -49,10 +49,9 @@ extern SPI_HandleTypeDef hspi1;
 #define SPI_RXBUFFERSIZE    1                       /* 锟斤拷锟斤拷锟叫? */
 extern uint8_t spi_rx_buffer[SPI_RXBUFFERSIZE];       /* HAL锟斤拷USART锟斤拷锟斤拷Buffer */
 //extern uint8_t spi_tx_rx_buffer[PACKET_SIZE+5];
-/* USER CODE END Private defines */
 #define SYNC_FRAME            0xAA    // 帧同步吗
 #define PACKET_SIZE           (256) // 帧包数据大小
-#define PACKET_ALL_LENGTH     (256+8) //帧的总长度
+#define SPI_RX_LEN     (PACKET_SIZE+10) //帧的总长度
 typedef struct {
   uint8_t head[2];
   uint8_t index[2];// 原来是uint16_t
@@ -61,7 +60,11 @@ typedef struct {
   uint8_t crc_data[2];
   uint8_t info[PACKET_SIZE];
 }spi_send;
+
 extern spi_send *spi_send_buf;
+extern spi_send *spi_receive_buf;
+
+/* USER CODE END Private defines */
 
 void MX_SPI1_Init(void);
 
@@ -70,7 +73,8 @@ uint8_t spi1_read_write_byte(uint8_t txdata);
 //void SPI_MasterSendData_DMA(uint8_t* data, uint32_t size);				
 //void SPI_MasterSendData_DMA(uint8_t* data, uint32_t size, uint8_t count);
 void SPI_MasterSendData_DMA(uint8_t* data, uint32_t size);
-void SPI_MasterSendData_DMA_2(uint8_t* data, uint16_t data_size, uint32_t one_size);
+void SPI_MasterSendData_DMA_2(uint8_t* data, uint16_t data_size, uint32_t one_size, uint8_t times);
+void SPI_MasterReceiveData_DMA_2(void);
 /* USER CODE END Prototypes */
 
 #ifdef __cplusplus
