@@ -4,8 +4,6 @@
 
 已经完成的分包发送并且数据不足固定字节数据补0发送
 
-
-
 git 命令上传版本库
 
 ```shell
@@ -20,7 +18,6 @@ git push -u origin main
 git remote add origin git@github.com:Harrypotter-zhs/stm32f407-spi-demo.git
 git branch -M main
 git push -u origin main
-
 ```
 
 ## 注意事项

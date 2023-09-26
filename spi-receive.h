@@ -76,6 +76,7 @@ void SPI_MasterSendData_DMA(uint8_t* data, uint32_t size);
 void SPI_MasterSendData_DMA_2(uint8_t* data, uint16_t data_size, uint32_t one_size, uint8_t times);
 void SPI_MasterReceiveData_DMA_2(void);
 void data_unpacking(uint8_t* data, uint32_t size);
+void data_unpacking_V2(uint8_t* data, uint32_t size);
 /* USER CODE END Prototypes */
 
 #ifdef __cplusplus

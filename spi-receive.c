@@ -46,8 +46,10 @@ static uint16_t instructment_index=0;
 uint16_t rx_one_data_len = 0;        //一个设备节点要传输的总数据长度
 static uint16_t Current_len_now =0;
 uint8_t flag_save = 0;
+static uint8_t send_count_16 = 0, send_count_48=0; // 一共有16个设备
+static uint8_t save_data_count=0;
                                      // 每个子节点如果按照128字节传输则需要接收6个有效帧数.需要计算出这个字节数量
-static uint8_t device_number_one = 0, device_number_two = 0,flag_open=0, flag_same=0;
+static uint8_t device_number_one = 0, device_number_two = 0, flag_open=0, flag_same=0;
 //uint8_t g_rx_buffer[RXBUFFERSIZE];                  /* HAL库使用的串口接收缓冲 */
 
 /* USER CODE END 0 */
@@ -75,14 +77,14 @@ void MX_SPI1_Init(void)
   hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
-  hspi1.Init.CRCPolynomial = 7;
+  hspi1.Init.CRCPolynomial = 10;
   if (HAL_SPI_Init(&hspi1) != HAL_OK)
   {
     Error_Handler();
   }
   /* USER CODE BEGIN SPI1_Init 2 */
 //	HAL_SPI_Receive_IT(&hspi1, (uint8_t *)spi_rx_buffer, SPI_RXBUFFERSIZE);
-	__HAL_SPI_ENABLE(&hspi1); /* 使能SPI1 */
+		__HAL_SPI_ENABLE(&hspi1); /* 使能SPI1 */
 //	spi1_read_write_byte(0XFF); /* 启动传输, 实际上就是产生8个时钟脉冲, 达到清空DR的作用, 非必需 */
   /* USER CODE END SPI1_Init 2 */
 
@@ -352,57 +354,200 @@ void SPI_MasterSendData_DMA_2(uint8_t* data, uint16_t data_size, uint32_t one_si
 // 0=1B 1=A0 2=B0 3=0 4=12 5=0 6=D8 7=0 8=D8 9=DA 10=C3 11=12 12=1B 13=1B 14=1B 15=1B 16=1B 17=1B 18=1B 19=1B 
 // 需要写一个更新标志如果未成功更新则表示为 0 成功则表示为 1 
 // size 没用到
+// 数据保存存在漏洞 原因是在保存的时候被切片分了 组装的时候没有装到一起
+// 只剩下这个问题了 -今晚一定要解决9.25
+// 
 
 void data_copy_device(uint8_t device,uint16_t index, uint8_t* data, uint32_t size)
 {
 
-	if((device == 0x00)) //读取的是数据存储器A板的字典
+	if((device == 0x00 || device == 0x01)) //读取的是数据存储器A板/B板的字典
 	{
-			if (index == 0x2000)
-			{
-				datasave_eqip_1.data_index = index;
-				memcpy(&datasave_eqip_1.sub_index, data, size);
-			}
-			else if(index == 0x2100)
-			{
-				datasave_eqip_2.data_index = index;
-				memcpy(&datasave_eqip_1.sub_index, data, size);
-			}
-	}
-	else if((device == 0x01))
-	{
-		// 这个没定义无法查看数据
-			
-	}
-	else if((device >= 0x10) && (device <= 0x1F))
-	{
+		// 2000的索引的数据长度也就是120字节完全可以一帧保存完
+		// 2100索引的数据长度也还是120字节的数据长度 可以一帧保存完
 		if (index == 0x2000)
 		{
-			euip1_dict_1[(device-16)].data_index = index;
-			// memcpy(&spi_send_buf->info, &data[1], packetSize);
-			memcpy(&euip1_dict_1[(device-16)].sub_index, data, size);
+			datasave_eqip_1.data_index = index;	
+			// memcpy(&(datasave_eqip_1[(device-0)].sub_index[0]) + PACKET_SIZE*save_data_count, data, PACKET_SIZE);
+			memcpy(&(datasave_eqip_1.sub_index[0]), data, PACKET_SIZE);
+			printf("datasave_eqip_1[%d].sub_index %X\r\n", (device-0), datasave_eqip_1.sub_index[20]);
+			printf("\r\n");
 		}
 		else if(index == 0x2100)
 		{
-			euip1_dict_2[(device-10)].data_index = index;
-			memcpy(&euip1_dict_2[(device-16)].sub_index, data, size);
+			datasave_eqip_2.data_index = index;	
+			memcpy(&(datasave_eqip_2.sub_index[0]), data, PACKET_SIZE);
+			printf("datasave_eqip_2[%d].sub_index %X\r\n", (device-0), datasave_eqip_2.sub_index[20]);
+			printf("\r\n");
+		}
+	}
+	// 这个设备节点如果按照128字节进行拷贝数据的话 一个设备euip1_dict_1[0]就会有6个字节的数据帧
+	else if((device >= 0x10) && (device <= 0x1F))
+	{	
+		// 768字节数据每次分128字节刚好是6个帧-直接按照顺序接收就行
+		if(index == 0x2000)
+		{
+			// SPI_MasterSendData_DMA_2((uint8_t*)&euip1_dict_1, 
+			// 											0+sizeof(euip1_dict_1[0].sub_index)
+			// 											+sizeof(euip1_dict_1[0].data_information), 
+			// 											sizeof(instructment1_dictionary_1), 16, 0x10);
+			// 	ptr = (uint8_t*)(data+((one_struct_size)*i));
+			// 0 1设备
+			// 6 2
+			// 12 3
+			// 18 4
+			// 24 5
+			// 30 6
+			// 36 7
+			// 42 8 
+			// 48 9 
+			// 54 10	
+			// 60 11
+			// 66 12
+			// 72 13 
+			// 78 14 
+			// 84 15
+			// 90 结束 这一整个字典的数据都会被接收完成
+			// 1 2 3 4 5 6 
 			
-//			printf("euip1_dict_2[%d].index%X\r\n", (device-16), ((euip1_dict_2[(device-16)].data_index>>8)&0xFF));
-			printf("euip1_dict_2[%d].sub_index%X\r\n", (device-16),euip1_dict_2[(device-16)].sub_index[20]);
+			// 先处理两个字节的数据帧头
+			if (save_data_count ==0)
+			{
+				euip1_dict_1[(device-16)].data_index = index;	
+			}
+			memcpy(&(euip1_dict_1[(device-16)].sub_index[0]) + PACKET_SIZE*save_data_count, data, PACKET_SIZE);
+			printf("save_data_count %d\r\n", save_data_count);
+			if ((save_data_count+1) == 6)// 0-1 6-2 12-3 18-4 24-5
+			{	
+				save_data_count=0;
+				
+				send_count_16 = send_count_16+1;
+				// (uint8_t* )euip1_dict_1 = &euip1_dict_1[0]+770*send_count_16;
+				// 给下一个 2000 做铺垫
+				if (send_count_16 == 16)
+				{
+					send_count_16=0;
+				}
+				// printf("index %X\r\n", euip1_dict_1[(device-16)].data_index);
+			}
+			else
+			{
+				
+				save_data_count =save_data_count + 1;
+			}
+			printf("euip1_dict_1[%d].sub_index %X\r\n", (device-16),euip1_dict_1[(device-16)].sub_index[20]);
+			printf("\r\n");
+		}
+		// 一个子设备的长度只有2个帧
+		else if(index == 0x2100)
+		{
+			// 先处理两个字节的数据帧头
+			// 然后在复制有效数据帧
+			if (save_data_count ==0)
+			{
+				euip1_dict_2[(device-16)].data_index = index;	
+			}
+			memcpy(&(euip1_dict_2[(device-16)].sub_index[0]) + PACKET_SIZE*save_data_count, data, PACKET_SIZE);
+			printf("save_data_count %d\r\n", save_data_count);
+			if ((save_data_count+1) == 2)// 0-1 6-2 12-3 18-4 24-5
+			{	
+				
+				save_data_count=0;
+				send_count_16 = send_count_16+1;
+				// (uint8_t* )euip1_dict_1 = &euip1_dict_1[0]+770*send_count_16;
+				// 给下一个 2000 做铺垫
+				if (send_count_16 == 16)
+				{
+					send_count_16=0;
+				}
+				// printf("index %X\r\n", euip1_dict_1[(device-16)].data_index);
+			}
+			else
+			{
+				save_data_count =save_data_count + 1;
+			}
+			printf("euip1_dict_2[%d].sub_index %X\r\n", (device-16),euip1_dict_2[(device-16)].sub_index[20]);
+			printf("\r\n");
+			// if (save_data_count % 6 == 0)// 0-1 6-2 12-3 18-4 24-5
+			// {	
+			// 	save_data_count=0;
+			// 	send_count_16 = send_count_16+1;
+			// 	// (uint8_t* )euip1_dict_1 = &euip1_dict_1[0]+770*send_count_16;
+			// 	euip1_dict_1[(device-16)].data_index = index;
+			// 	// 给下一个 2000 做铺垫
+			// 	if (send_count_16 == 16)
+			// 	{
+			// 		send_count_16=0;
+			// 	}
+			// }
+			// // remaining = (data_size%PACKET_SIZE);
+			// // 
+			// memcpy( (uint8_t*)(&euip1_dict_2[(device-16)].sub_index + PACKET_SIZE*save_data_count), data, PACKET_SIZE);
+			// // 只能是接收完一帧数据之后才能叠加
+			// save_data_count = save_data_count + 1;
+			// printf("euip1_dict_2[%d].sub_index %X\r\n", (device-16),euip1_dict_2[(device-16)].sub_index[20]);
 		}
 	}
 	else if((device >= 0x20) && (device <= 0x4F))
-	{
+	{	
+		// 2000索引的数据长度 122字节 也可以是一帧就保存完 但是有个问题就是 他有48个索引的子节点
+		// 2100索引的数据长度 122字节 也可以是一帧就保存完 但是有个问题就是 他有48个索引的子节点
 		if (index == 0x2000)
 		{
-			euip2_dict_1[(device-32)].data_index = index;
-			// memcpy(&spi_send_buf->info, &data[1], packetSize);
-			memcpy(&euip2_dict_1[(device-32)].sub_index, data, size);
+			// 先处理两个字节的数据帧头
+			if (save_data_count ==0)
+			{
+				euip2_dict_1[(device-32)].data_index = index;	
+			}
+			memcpy(&(euip2_dict_1[(device-32)].sub_index[0]) + PACKET_SIZE*save_data_count, data, PACKET_SIZE);
+			printf("save_data_count %d\r\n", save_data_count);
+			if ((save_data_count+1) == 1)// 0-1 6-2 12-3 18-4 24-5
+			{	
+				save_data_count=0;
+				send_count_48 = send_count_48+1;
+				// (uint8_t* )euip1_dict_1 = &euip1_dict_1[0]+770*send_count_16;
+				// 给下一个 2000 做铺垫
+				if (send_count_48 == 48)
+				{
+					send_count_48 = 0;
+				}
+				// printf("index %X\r\n", euip1_dict_1[(device-16)].data_index);
+			}
+			else
+			{
+				save_data_count = save_data_count + 1;
+			}
+			printf("euip2_dict_1[%d].sub_index %X\r\n", (device-32), euip2_dict_1[(device-32)].sub_index[20]);
+			printf("\r\n");
 		}
 		else if(index == 0x2100)
 		{
-			euip2_dict_2[(device-32)].data_index = index;
-			memcpy(&euip2_dict_2[(device-32)].sub_index, data, size);
+			if (save_data_count ==0)
+			{
+				euip2_dict_2[(device-32)].data_index = index;	
+			}
+			memcpy(&(euip2_dict_2[(device-32)].sub_index[0]) + PACKET_SIZE*save_data_count, data, PACKET_SIZE);
+			printf("save_data_count %d\r\n", save_data_count);
+			if ((save_data_count+1) == 1)// 0-1 6-2 12-3 18-4 24-5
+			{	
+				
+				save_data_count=0;
+				
+				send_count_48 = send_count_48+1;
+				// (uint8_t* )euip1_dict_1 = &euip1_dict_1[0]+770*send_count_16;
+				// 给下一个 2000 做铺垫
+				if (send_count_48 == 48)
+				{
+					send_count_48 = 0;
+				}
+				// printf("index %X\r\n", euip1_dict_1[(device-16)].data_index);
+			}
+			else
+			{
+				save_data_count = save_data_count + 1;
+			}
+			printf("euip2_dict_2[%d].sub_index %X\r\n", (device-32), euip2_dict_2[(device-32)].sub_index[20]);
+			printf("\r\n");
 		}
 	}
 	else
@@ -414,6 +559,64 @@ void data_copy_device(uint8_t device,uint16_t index, uint8_t* data, uint32_t siz
 
 }
 
+/**这一版只进行校验然后进行保存数据给特定的设备的帧
+ * 
+*/
+void data_unpacking_V2(uint8_t* data, uint32_t size)
+{
+	uint8_t rx_data_crc[2];
+	uint16_t send_data_crc;
+	uint16_t rx_len=0; 
+	uint8_t* ptr = data;
+	// static uint8_t rx_times = 0;
+	uint8_t rx_num = 0;                  // 计算需要接收的帧的次数，比如euip1_dict_1[16] 有16个设备子节点，
+	
+	if ((*ptr != NULL))
+	{
+		// 查看帧头是否正确如果不正确 这个数据错误 检验帧头是否正确
+		if ((ptr[0] == 0xA0) && (ptr[1] == 0xB0))
+		{
+			// 尝试直接操作指针进行操作 
+			{
+				// rx_data_crc[0] = ptr[8];
+				// rx_data_crc[1] = ptr[9];
+			}
+			device_number_one = ptr[2];     // 设备子节点
+			// 发的顺序和接收的顺序是一样的，要看固定的数据就行
+			send_data_crc = crc16tablefast(ptr,8);
+			//对比CRC校验值是否正确，是则进行处理数据开始
+			//设备校验正确-说明数据正确-校验方式不是很对
+			if(send_data_crc == (ptr[8] << 8)|ptr[9])
+			{		
+				// printf("received ok\r\n");
+				// 每个设备的节点号 2000 或者2100 
+				instructment_index = (((uint16_t)ptr[3])<<8);
+				// printf("sub index %X\r\n", instructment_index);
+				// 当前设备的x的数据帧中的有效数据长度
+				rx_len = (ptr[4]<<8|(ptr[5]));				
+				// 直接保存数据到特定的设备里面即可-数据帧还没拼接
+				// 效果很明显
+				printf("device_number_one %X\r\n", ptr[2]);
+				// 只用负责拷贝数据就行 只能是从第10字节开始是有效数据 前10个都是枕头
+				data_copy_device(device_number_one, instructment_index, &ptr[10], rx_len);
+			}
+			else // CRC校验错误
+			{
+				printf("decvice %X %X crc error ", ptr[2], ptr[3]);
+				printf("send_data_crc %X\r\n", send_data_crc);
+			}
+		}
+		else // 接收数据错误-或者说并没有接收到开头的数据，抛弃此帧的数据
+		{
+				printf("head error %X %X\r\n", ptr[0], ptr[1]);
+		}
+	}
+	else 
+	{
+		printf("spi receive data is NULL\r\n");
+	}
+}
+
 void data_unpacking(uint8_t* data, uint32_t size)
 {
 		uint8_t rx_data_crc[2];
@@ -423,24 +626,25 @@ void data_unpacking(uint8_t* data, uint32_t size)
 		// static uint8_t rx_times = 0;
 		uint8_t rx_num = 0;                  // 计算需要接收的帧的次数，比如euip1_dict_1[16] 有16个设备子节点，
 		
-		// if (one_flag == 1 && (*ptr != NULL))
 		if ((*ptr != NULL))
 		{
 			  // 查看帧头是否正确如果不正确 这个数据错误 检验帧头是否正确
 				if ((ptr[0] == 0xA0) && (ptr[1] == 0xB0))
 				{
+					// 尝试直接操作指针进行操作 
 					{
-						rx_data_crc[0] = ptr[8];
-						rx_data_crc[1] = ptr[9];
+						// rx_data_crc[0] = ptr[8];
+						// rx_data_crc[1] = ptr[9];
 					}
-					device_number_one = ptr[2]; // 设备子节点
+					device_number_one = ptr[2];     // 设备子节点
 					// 发的顺序和接收的顺序是一样的，要看固定的数据就行
 					send_data_crc = crc16tablefast(ptr,8);
 					//对比CRC校验值是否正确，是则进行处理数据开始
 					//设备校验正确-说明数据正确-校验方式不是很对
-					if (send_data_crc == ((rx_data_crc[0]<<8)|rx_data_crc[1])) 
+					// if (send_data_crc == ((rx_data_crc[0]<<8)|rx_data_crc[1])) 
+					if(send_data_crc == (ptr[8] << 8)|ptr[9])
 					{		
-						printf("received ok\r\n");
+						// printf("received ok\r\n");
 						// 每个设备的节点号 2000 或者2100 
 						instructment_index = (((uint16_t)ptr[3])<<8);
 						// 当前设备的x的数据帧中的有效数据长度
@@ -451,13 +655,13 @@ void data_unpacking(uint8_t* data, uint32_t size)
 						
 						// 测试查看接收的数据是否正确，检验截取测试的 
 						// 10H-2100-216字节，分128 88 两次发送
-						printf("index %X\r\n", instructment_index);
-						printf("device %X\r\n", device_number_one);
-						// printf("data_len %X\r\n", rx_len);
-						// printf("data_all_len %X\r\n", rx_one_data_len);
-						printf("data_len %d\r\n", rx_len);
-						printf("data_all_len %d\r\n", rx_one_data_len);
-						printf("Current_len_now %d\r\n", Current_len_now);
+//						printf("index %X\r\n", instructment_index);
+//						printf("device %X\r\n", device_number_one);
+//						// printf("data_len %X\r\n", rx_len);
+//						// printf("data_all_len %X\r\n", rx_one_data_len);
+//						printf("data_len %d\r\n", rx_len);
+//						printf("data_all_len %d\r\n", rx_one_data_len);
+//						printf("Current_len_now %d\r\n", Current_len_now);
 						// 以每个设备为节点基础，一个设备可以有x个帧
 						// 每次接收需要计算的总的帧数
 						if ((rx_one_data_len % PACKET_SIZE) == 0) // 恰好能完全整除
@@ -474,14 +678,8 @@ void data_unpacking(uint8_t* data, uint32_t size)
 						printf("rx_num %d\r\n", rx_num);
 						if (rx_num == 1) // 只用一个数据帧便可完成所有的数据传输,那就表示接收完此帧就可以保存赋值即可
 						{
-							// 数据赋值操作
-//									    memset(&spi_send_buf->info, 0x01, PACKET_SIZE); 
-//											memcpy(&spi_send_buf->info, &data[1], packetSize);
-							
-							// memset(&spi_rx_buf->info, 0x00, PACKET_SIZE);	
-							// // 接收一帧中的有效数据rx_len
-							// memcpy(&spi_rx_buf->info, &ptr[10], rx_len); 			
-								data_copy_device(device_number_one, instructment_index, ptr, rx_len);
+							// 数据赋值操作 只接有效数据的长度		
+							data_copy_device(device_number_one, instructment_index, ptr, rx_len);
 						}
 						else if(rx_num > 1) //多个帧传输，假设为2个帧传输
 						{	
@@ -490,23 +688,34 @@ void data_unpacking(uint8_t* data, uint32_t size)
 									device_number_one = ptr[2];//当前设备的数据接收到的第一帧
 									flag_same = 1;  // 
 									flag_open = 1;  // 为下一帧做准备
-									printf("device_number_one %X\r\n", device_number_one);
+									printf("device_number_one %X\r\n", ptr[2]);
 							}
 							else if((flag_open == 1))// 当前设备子节点没错，和上一帧的数据是一个设备子节点的，并且接收该数据的第2 3 。。帧数据
 							{	
-								device_number_two = ptr[2];
+								device_number_one = ptr[2];
 								if (device_number_two == device_number_one)		
-								{
+								{		
+										device_number_two  = device_number_one;
 										flag_same = flag_same + 1;
-										printf("device number same\r\n");
+										printf("device number same %X\r\n", device_number_one);
+								}
+								// 存在接收数据帧不完整的情况
+								else{
+									flag_open = 0;
+									flag_same = 0;
+									Current_len_now = 0;
+									device_number_two = 0;
+									device_number_one =0;
 								}
 							}
+							// 多帧数据接收
 							if (flag_same != 0) // 接收多帧传输的数据字节比如 第一帧一节接下来的帧数
 							{
-								printf("data processing\r\n");
+								// printf("data processing\r\n");
 								printf("flag_same %d\r\n", flag_same);
 								data_copy_device(device_number_one, instructment_index, ptr, rx_len);
-								// 接收完成-此时这个设备的数据全部接收完毕
+								
+								// 判断接收完成-此时这个设备的数据全部接收完毕
 								if(flag_same == rx_num)
 								{
 									flag_open = 0;
@@ -514,52 +723,27 @@ void data_unpacking(uint8_t* data, uint32_t size)
 									Current_len_now = 0;
 									printf("receiver all data one device OK %X\r\n", device_number_two);
 								}
-									// // 数据赋值操作
-									// memset(&spi_rx_buf->info, 0x00, PACKET_SIZE);	
-									// // 接收一帧中的有效数据rx_len
-									// memcpy(&spi_rx_buf->info, &ptr[10], rx_len); 
 							}
 						}
+					}
+					else // CRC校验错误
+					{
+						printf("decvice %X %X crc error ", ptr[2], ptr[3]);
+						printf("send_data_crc %X\r\n", send_data_crc);
+					}
 				}
-				else // CRC校验错误
+				else // 接收数据错误-或者说并没有接收到开头的数据，抛弃此帧的数据
 				{
-					printf("decvice %X %X crc error ", ptr[2], ptr[3]);
-					printf("send_data_crc %X\r\n", send_data_crc);
+						printf("head error %X %X\r\n", ptr[0], ptr[1]);
 				}
 			}
-			else // 接收数据错误-或者说并没有接收到开头的数据，抛弃此帧的数据
+			else 
 			{
-					printf("head error %X %X\r\n", ptr[0], ptr[1]);
+				printf("spi receive data is NULL\r\n");
 			}
-		}
-		else if(ptr == NULL)
-		{
-			printf("spi receive error\r\n");
-		}
-		// one_flag = 0;
 }
 
-//void SPI_MasterReceiveData_DMA_2(uint8_t* data, uint16_t data_size, uint32_t one_size, uint8_t times)
-//void SPI_MasterReceiveData_DMA_2(void)
-//{
-//		if (HAL_DMA_PollForTransfer(&hdma_spi1_rx, HAL_DMA_FULL_TRANSFER, HAL_MAX_DELAY) == HAL_OK)
-//    {
-//      /* DMA transfer completed, data is available in RxBuffer */
-//      // 处理接收到的数据
-//			one_flag = 1;
-//			printf("SPI_MasterReceiveData_DMA_2\r\n");
-//    }
-//}
 
-//void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef *hspi)
-//{
-//    // 数据接收全部完成时的处理
-//    // ...
-//		one_flag = 1;
-//		HAL_SPI_Receive_DMA(&hspi1, spi_rx_buffer, 256);
-//		printf("HAL_SPI_RxCpltCallback");
-////		data_unpacking((uint8_t*)spi_receive_buf, 0);
-//}
 
 #if 0
 // 发送数据
@@ -605,38 +789,6 @@ void SPI_MasterSendData_DMA(uint8_t* data, uint32_t size)
 }
 
 #endif /* HAL_SPI_MODULE
-
-
-//void SPI1_IRQHandler(void)
-//{
-//		uint32_t timeout = 0;
-//		uint32_t maxDelay = 0x1FFFF;
-//		
-//		HAL_SPI_IRQHandler(&hspi1);
-//		timeout = 0;
-//		while (HAL_SPI_GetState(&hspi1) != HAL_SPI_STATE_READY) /* 等待就绪 */
-//		{
-//				timeout++;                              /* 超时处理 */
-//				if(timeout > maxDelay)
-//				{
-//						break;
-//				}
-//		}
-//		timeout=0;
-//		
-//		/* 一次处理完成之后，重新开启中断并设置RxXferCount为1 */
-//		while (HAL_SPI_Receive_IT(&hspi1, (uint8_t *)spi_rx_buffer, SPI_RXBUFFERSIZE) != HAL_OK)
-//		{
-//				timeout++;                              /* 超时处理 */
-//				if (timeout > maxDelay)
-//				{
-//						break;
-//				}
-//		}
-//	
-//}
-
-
 
 
 
